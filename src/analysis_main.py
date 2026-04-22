@@ -275,7 +275,7 @@ def analyze_digital_drivers(
             continue
 
         summary = (
-            df.groupby(target_col)[col]
+            df.groupby(target_col, observed=False)[col]
             .mean()
             .round(2)
         )
@@ -371,7 +371,7 @@ def analyze_psychological_drivers(
             continue
 
         summary = (
-            df.groupby(target_col)[col]
+            df.groupby(target_col, observed=False)[col]
             .mean()
             .round(2)
         )

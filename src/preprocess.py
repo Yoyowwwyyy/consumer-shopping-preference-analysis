@@ -96,13 +96,14 @@ def basic_feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
         )
 
         # Avoid division by zero
-        total_activity = df["total_shopping_activity"].replace(0, pd.NA)
+        total_activity = df["total_shopping_activity"].replace(0, float("nan"))
 
-        df["online_activity_share"] = df["monthly_online_orders"] / total_activity
-        df["store_activity_share"] = df["monthly_store_visits"] / total_activity
-
-        df["online_activity_share"] = df["online_activity_share"].fillna(0)
-        df["store_activity_share"] = df["store_activity_share"].fillna(0)
+        df["online_activity_share"] = (
+            df["monthly_online_orders"].div(total_activity).fillna(0.0)
+        )
+        df["store_activity_share"] = (
+            df["monthly_store_visits"].div(total_activity).fillna(0.0)
+        )
 
     # Income group
     if "monthly_income" in df.columns:
