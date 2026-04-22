@@ -512,7 +512,6 @@ def _add_bar_value_labels(
     for patch in ax.patches:
         height = patch.get_height()
 
-        # 跳过非正常值
         if pd.isna(height):
             continue
 
