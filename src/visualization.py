@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
+import os
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -50,6 +51,7 @@ DISPLAY_NAME_MAP = {
     "age_group": "Age Group",
     "income_band": "Income Band",
 }
+
 
 
 # * Main Functions
@@ -303,6 +305,92 @@ def plot_activity_structure_chart(
     return (fig1, ax1), (fig2, ax2)
 
 
+# Plot top-N ML feature importance values
+def plot_ml_feature_importance(
+    importance_df: pd.DataFrame,
+    top_n: int = 10,
+    title: str = "Top Features Influencing Shopping Preference",
+    figsize: tuple = (9, 5.5),
+    save_fig: bool = False,
+    filename: str = "ml_feature_importance_top10.png",
+):
+
+    required_cols = {"feature", "importance"}
+    missing_cols = required_cols - set(importance_df.columns)
+    if missing_cols:
+        raise ValueError(
+            f"importance_df is missing required columns: {missing_cols}"
+        )
+
+    plot_df = importance_df.head(top_n).copy()
+    if plot_df.empty:
+        raise ValueError("importance_df is empty.")
+
+    plot_df = plot_df.iloc[::-1]  # reverse for barh top-to-bottom display
+
+    set_plot_style()
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # y labels
+    if "feature_group" in plot_df.columns:
+        display_labels = [
+            f"{feature} ({group})"
+            for feature, group in zip(plot_df["feature"], plot_df["feature_group"])
+        ]
+    else:
+        display_labels = plot_df["feature"].tolist()
+
+    y_positions = range(len(plot_df))
+
+    ax.barh(
+        y=y_positions,
+        width=plot_df["importance"],
+        color="#4E79A7",
+        edgecolor="black",
+        linewidth=0.6,
+    )
+
+    ax.set_yticks(list(y_positions))
+    ax.set_yticklabels(display_labels)
+
+    _format_axis(
+        ax=ax,
+        title=title,
+        xlabel="Importance (average absolute coefficient)",
+        ylabel="Feature",
+        rotate_xticks=0,
+        show_y_grid=False,
+    )
+
+    ax.grid(axis="x", linestyle="--", alpha=0.3)
+
+    # value labels
+    x_max = float(plot_df["importance"].max())
+    label_offset = x_max * 0.01 if x_max > 0 else 0.01
+
+    for i, value in enumerate(plot_df["importance"]):
+        ax.text(
+            x=value + label_offset,
+            y=i,
+            s=f"{value:.3f}",
+            va="center",
+            ha="left",
+            fontsize=9,
+        )
+
+    plt.tight_layout()
+
+    if save_fig:
+        save_path = save_figure(
+            fig=fig,
+            filename=filename,
+            subfolder="ml_analysis",
+            close=False,
+        )
+
+    return fig, ax
+
+
 # * Helpers
 
 # Apply a unified matplotlib style for the whole project.
@@ -366,7 +454,6 @@ def get_preference_palette(
         palette[str(value)] = PREFERENCE_PALETTE.get(str(value), fallback_color)
     return palette
 
-
 # Save figure to figures/<subfolder>/filename and return the path
 def save_figure(
     fig,
@@ -425,6 +512,7 @@ def _add_bar_value_labels(
     for patch in ax.patches:
         height = patch.get_height()
 
+        # 跳过非正常值
         if pd.isna(height):
             continue
 
@@ -438,8 +526,7 @@ def _add_bar_value_labels(
             fontsize=9
         )
 
-
-# Add percent labels above bars for already-percent-scaled values.
+# Add percent labels above bars for already-percent-scaled values
 def _add_percent_labels_to_bars(
     ax,
     fmt: str = "{:.1f}%",
@@ -465,6 +552,7 @@ def _add_percent_labels_to_bars(
             va="bottom",
             fontsize=9
         )
+
 
 
 # Narrow the y-axis for subtle differences, but avoid dishonest over-zooming
