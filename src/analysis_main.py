@@ -4,6 +4,15 @@ from typing import Dict, List, Optional
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from src.visualization import (
+    get_display_name,
+    set_plot_style,
+    plot_preference_distribution,
+    plot_single_metric_by_preference,
+    plot_stacked_preference_mix,
+    save_figure,
+)
+
 
 # * Variable
 
@@ -56,16 +65,15 @@ BEHAVIOR_COLS = [
 def analyze_preference_overview(
     df: pd.DataFrame,
     target_col: str = "shopping_preference",
-    plot: bool = True
+    plot: bool = True,
+    save_fig: bool = False
 ) -> dict:
 
     if target_col not in df.columns:
         raise ValueError(f"{target_col} not found in dataframe.")
 
-    # Count
     count_table = df[target_col].value_counts().rename("count")
 
-    # Percentage
     percentage_table = (
         df[target_col]
         .value_counts(normalize=True)
@@ -74,35 +82,42 @@ def analyze_preference_overview(
         .rename("percentage")
     )
 
-    # Combine & Sort
     summary_table = pd.concat([count_table, percentage_table], axis=1)
-    summary_table = summary_table.sort_values(by="count", ascending=False)
+
+    ordered_index = [x for x in ["Store", "Online", "Hybrid"] if x in summary_table.index]
+    remaining_index = [x for x in summary_table.index if x not in ordered_index]
+    summary_table = summary_table.loc[ordered_index + remaining_index]
 
     max_count = summary_table["count"].max()
     min_count = summary_table["count"].min()
     imbalance_ratio = round(max_count / min_count, 2) if min_count > 0 else None
 
-    if plot:
-        ax = summary_table["count"].plot(kind="bar", figsize=(7, 4))
-        plt.title("Shopping Preference Distribution")
-        plt.xlabel("Preference")
-        plt.ylabel("Count")
-        plt.xticks(rotation=0)
+    saved_path = None
 
-        for i, (_, row) in enumerate(summary_table.iterrows()):
-            ax.text(
-                i,
-                row["count"],
-                f'{row["percentage"]:.2f}%',
-                ha="center",
-                va="bottom"
+    if plot:
+        set_plot_style()
+        fig, ax = plot_preference_distribution(
+            summary_table=summary_table,
+            count_col="count",
+            percentage_col="percentage",
+            title="Shopping Preference Distribution",
+            xlabel="Preference",
+            ylabel="Count",
+            figsize=(7, 4),
+        )
+
+        if save_fig:
+            saved_path = save_figure(
+                fig=fig,
+                filename="shopping_preference_distribution.png",
+                subfolder="main_analysis"
             )
 
-        plt.tight_layout()
         plt.show()
+        plt.close(fig)
 
-    most_common = summary_table.index[0]
-    least_common = summary_table.index[-1]
+    most_common = summary_table["count"].idxmax()
+    least_common = summary_table["count"].idxmin()
 
     insights = f"""
 The distribution of shopping preference shows a clear imbalance:
@@ -118,6 +133,7 @@ The distribution of shopping preference shows a clear imbalance:
         "percentage_table": percentage_table,
         "summary_table": summary_table,
         "imbalance_ratio": imbalance_ratio,
+        "saved_path": saved_path,
         "insights": insights.strip()
     }
 
@@ -127,18 +143,16 @@ def analyze_demographic_drivers(
     df: pd.DataFrame,
     target_col: str = "shopping_preference",
     demographic_cols: list = None,
-    plot: bool = True
+    plot: bool = True,
+    save_fig: bool = False
 ) -> dict:
-    """
-    Analyze how demographic variables relate to shopping preference.
-    Numerical variables are binned before plotting.
-    """
 
     if demographic_cols is None:
         raise ValueError("demographic_cols must be provided.")
 
     tables = {}
     driver_strength = {}
+    saved_paths = {}
 
     for col in demographic_cols:
         if col not in df.columns:
@@ -147,7 +161,6 @@ def analyze_demographic_drivers(
         plot_col = col
         temp_df = df.copy()
 
-        # Aggregative Processing
         if col == "age":
             temp_df["age_group"] = pd.cut(
                 temp_df["age"],
@@ -165,7 +178,6 @@ def analyze_demographic_drivers(
             )
             plot_col = "income_band"
 
-        # Crosstab
         crosstab = pd.crosstab(
             temp_df[plot_col],
             temp_df[target_col],
@@ -174,29 +186,33 @@ def analyze_demographic_drivers(
 
         tables[col] = crosstab
 
-        # Driver Strength
         if "Store" in crosstab.columns:
             store_share = crosstab["Store"]
             deviation = (1 - store_share).mean()
             driver_strength[col] = deviation
 
-        # Plot
         if plot:
-            ax = crosstab.plot(
-                kind="bar",
-                stacked=True,
-                figsize=(7, 4)
+            set_plot_style()
+            display_plot_col = get_display_name(plot_col)
+
+            fig, ax = plot_stacked_preference_mix(
+                crosstab=crosstab,
+                title=f"{display_plot_col} vs Shopping Preference",
+                ylabel="Proportion",
+                xlabel=display_plot_col,
+                figsize=(7, 4),
+                legend_title="Preference",
             )
-            plt.title(f"{plot_col} vs Shopping Preference")
-            plt.ylabel("Proportion")
-            plt.xlabel(plot_col)
-            plt.xticks(rotation=0)
 
-            plt.legend(title="Preference", loc="upper right")
+            if save_fig:
+                saved_paths[col] = save_figure(
+                    fig=fig,
+                    filename=f"{plot_col}_vs_shopping_preference.png",
+                    subfolder="main_analysis"
+                )
 
-            plt.tight_layout()
             plt.show()
-            plt.close()
+            plt.close(fig)
 
     driver_summary = (
         pd.Series(driver_strength)
@@ -233,6 +249,7 @@ However, the overall differences remain relatively small, suggesting limited exp
     return {
         "tables": tables,
         "driver_summary": driver_summary,
+        "saved_paths": saved_paths,
         "insights": insights.strip()
     }
 
@@ -242,7 +259,8 @@ def analyze_digital_drivers(
     df: pd.DataFrame,
     target_col: str = "shopping_preference",
     digital_cols: list = None,
-    plot: bool = True
+    plot: bool = True,
+    save_fig: bool = False
 ) -> dict:
 
     if digital_cols is None:
@@ -250,59 +268,55 @@ def analyze_digital_drivers(
 
     tables = {}
     driver_strength = {}
+    saved_paths = {}
 
     for col in digital_cols:
-
         if col not in df.columns:
             continue
 
-        # Group Meaning
         summary = (
             df.groupby(target_col)[col]
             .mean()
             .round(2)
-            .sort_values(ascending=False)
         )
 
         tables[col] = summary
 
-        # Driver Strength
         strength = summary.max() - summary.min()
         driver_strength[col] = strength
 
-        # Plot      
         if plot:
-            ax = summary.plot(
-                kind="bar",
-                figsize=(6, 4)
+            set_plot_style()
+            display_col = get_display_name(col)
+
+            fig, ax = plot_single_metric_by_preference(
+                summary=summary,
+                title=f"{display_col} by Shopping Preference",
+                ylabel="Average Value",
+                xlabel="Preference",
+                narrow_y=True,
+                padding_ratio=0.20,
+                min_visible_span_ratio=0.05,
+                show_values=True,
+                value_fmt="{:.2f}",
             )
 
-            plt.title(f"{col} by Shopping Preference")
-            plt.ylabel("Average Value")
-            plt.xlabel("Preference")
-            plt.xticks(rotation=0)
+            if save_fig:
+                saved_paths[col] = save_figure(
+                    fig=fig,
+                    filename=f"{col}_by_shopping_preference.png",
+                    subfolder="main_analysis"
+                )
 
-            y_min = summary.min()
-            y_max = summary.max()
-
-            padding = (y_max - y_min) * 0.2  # 给一点空间
-            plt.ylim(y_min - padding, y_max + padding)
-
-            for i, v in enumerate(summary.values):
-                ax.text(i, v, f"{v:.2f}", ha="center", va="bottom")
-
-            plt.tight_layout()
             plt.show()
-            plt.close()
+            plt.close(fig)
 
-    # Sort
     driver_summary = (
         pd.Series(driver_strength)
         .sort_values(ascending=False)
         .rename("driver_strength")
     )
 
-    # Generation
     top_driver = driver_summary.index[0]
     top_value = driver_summary.iloc[0]
 
@@ -331,6 +345,7 @@ This indicates that digital capability plays a significant role in shaping shopp
     return {
         "tables": tables,
         "driver_summary": driver_summary,
+        "saved_paths": saved_paths,
         "insights": insights.strip()
     }
 
@@ -340,7 +355,8 @@ def analyze_psychological_drivers(
     df: pd.DataFrame,
     target_col: str = "shopping_preference",
     psych_cols: list = None,
-    plot: bool = True
+    plot: bool = True,
+    save_fig: bool = False
 ) -> dict:
 
     if psych_cols is None:
@@ -348,9 +364,9 @@ def analyze_psychological_drivers(
 
     tables = {}
     driver_strength = {}
+    saved_paths = {}
 
     for col in psych_cols:
-
         if col not in df.columns:
             continue
 
@@ -358,44 +374,45 @@ def analyze_psychological_drivers(
             df.groupby(target_col)[col]
             .mean()
             .round(2)
-            .sort_values(ascending=False)
         )
 
         tables[col] = summary
 
-        # Driver Strength
         strength = summary.max() - summary.min()
         driver_strength[col] = strength
 
-        # Plot
         if plot:
-            ax = summary.plot(kind="bar", figsize=(6, 4))
+            set_plot_style()
+            display_col = get_display_name(col)
 
-            plt.title(f"{col} by Shopping Preference")
-            plt.ylabel("Average Value")
-            plt.xlabel("Preference")
-            plt.xticks(rotation=0)
+            fig, ax = plot_single_metric_by_preference(
+                summary=summary,
+                title=f"{display_col} by Shopping Preference",
+                ylabel="Average Value",
+                xlabel="Preference",
+                narrow_y=True,
+                padding_ratio=0.20,
+                min_visible_span_ratio=0.05,
+                show_values=True,
+                value_fmt="{:.2f}",
+            )
 
-            y_min = summary.min()
-            y_max = summary.max()
-            padding = (y_max - y_min) * 0.2
-            plt.ylim(y_min - padding, y_max + padding)
+            if save_fig:
+                saved_paths[col] = save_figure(
+                    fig=fig,
+                    filename=f"{col}_by_shopping_preference.png",
+                    subfolder="main_analysis"
+                )
 
-            for i, v in enumerate(summary.values):
-                ax.text(i, v, f"{v:.2f}", ha="center", va="bottom")
-
-            plt.tight_layout()
             plt.show()
-            plt.close()
+            plt.close(fig)
 
-    # Sort
     driver_summary = (
         pd.Series(driver_strength)
         .sort_values(ascending=False)
         .rename("driver_strength")
     )
 
-    # Generation
     top_driver = driver_summary.index[0]
     top_value = driver_summary.iloc[0]
 
@@ -421,6 +438,7 @@ In particular, differences in {top_driver} play a key role in determining whethe
     return {
         "tables": tables,
         "driver_summary": driver_summary,
+        "saved_paths": saved_paths,
         "insights": insights.strip()
     }
 

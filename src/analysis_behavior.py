@@ -1,5 +1,14 @@
+from __future__ import annotations
+
 import pandas as pd
 import matplotlib.pyplot as plt
+
+from src.visualization import (
+    get_display_name,
+    set_plot_style,
+    save_figure,
+    plot_activity_structure_chart,
+)
 
 
 # * Main Functions
@@ -9,7 +18,8 @@ def run_behavior_analysis(
     df: pd.DataFrame,
     target_col: str = "shopping_preference",
     plot: bool = True,
-    round_digits: int = 3
+    round_digits: int = 3,
+    save_fig: bool = False
 ) -> dict:
     
     if not isinstance(df, pd.DataFrame):
@@ -37,7 +47,8 @@ def run_behavior_analysis(
         df=df,
         target_col=target_col,
         plot=plot,
-        round_digits=round_digits
+        round_digits=round_digits,
+        save_fig=save_fig
     )
 
     hybrid_position = analyze_hybrid_position(
@@ -60,7 +71,8 @@ def analyze_activity_structure(
     df: pd.DataFrame,
     target_col: str = "shopping_preference",
     plot: bool = True,
-    round_digits: int = 3
+    round_digits: int = 3,
+    save_fig: bool = False
 ) -> dict:
 
     if not isinstance(df, pd.DataFrame):
@@ -134,39 +146,48 @@ def analyze_activity_structure(
                 "Hybrid appears to sit between Store and Online in store activity share."
             )
 
+    saved_paths = {}
+
     if plot:
-        # Chart 1: activity share comparison
-        share_cols = ["online_activity_share", "store_activity_share"]
-        share_plot = plot_data[share_cols]
+        set_plot_style()
+        (fig1, ax1), (fig2, ax2) = plot_activity_structure_chart(
+            plot_data=plot_data,
+            figsize_share=(8, 5),
+            figsize_total=(7, 4),
+            narrow_total_y=True,
+            total_padding_ratio=0.20,
+            total_min_visible_span_ratio=0.05,
+            show_values=True,
+        )
 
-        ax = share_plot.plot(kind="bar", figsize=(8, 5))
-        ax.set_title("Activity Share by Shopping Preference")
-        ax.set_xlabel("Shopping Preference")
-        ax.set_ylabel("Average Share")
-        ax.legend(title="Metric", loc="upper right")
-        plt.xticks(rotation=0)
-        plt.tight_layout()
+        # overwrite titles using display names for better consistency
+        ax1.set_title(
+            f"{get_display_name('online_activity_share')} and "
+            f"{get_display_name('store_activity_share')} by Shopping Preference"
+        )
+        ax2.set_title(f"{get_display_name('total_shopping_activity')} by Shopping Preference")
+
+        if save_fig:
+            saved_paths["activity_share"] = save_figure(
+                fig=fig1,
+                filename="activity_share_by_shopping_preference.png",
+                subfolder="behavior_analysis"
+            )
+            saved_paths["total_activity"] = save_figure(
+                fig=fig2,
+                filename="total_shopping_activity_by_shopping_preference.png",
+                subfolder="behavior_analysis"
+            )
+
         plt.show()
-
-        # Chart 2: total activity comparison
-        ax = plot_data[["total_shopping_activity"]].plot(kind="bar", figsize=(7, 4))
-
-        ax.set_title("Total Shopping Activity by Shopping Preference")
-        ax.set_xlabel("Shopping Preference")
-        ax.set_ylabel("Average Total Activity")
-
-        min_val = plot_data["total_shopping_activity"].min()
-        max_val = plot_data["total_shopping_activity"].max()
-        ax.set_ylim(min_val * 0.95, max_val * 1.05)
-
-        plt.xticks(rotation=0)
-        plt.tight_layout()
-        plt.show()
+        plt.close(fig1)
+        plt.close(fig2)
 
     return {
         "summary_table": summary_table,
         "key_patterns": key_patterns,
         "plot_data": plot_data,
+        "saved_paths": saved_paths,
     }
 
 
